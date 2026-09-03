@@ -1,7 +1,7 @@
 ﻿// ==UserScript==
 // @name         Chess AI Bot - Stockfish Analysis & Auto-Play
-// @namespace    https://github.com/aciokie/chess-ai-bot
-// @version      1.0.0
+// @namespace    https://github.com/aciokie/chess-ai-bot-lc
+// @version      1.0.1
 // @description  Stockfish 18 WASM chess engine analysis and auto-play for Chess.com and Lichess
 // @match        https://www.chess.com/*
 // @match        https://lichess.org/*
@@ -11,11 +11,11 @@
 // @grant        GM_getResourceText
 // @grant        GM_info
 // @grant        GM_openInTab
-// @require      https://cdn.jsdelivr.net/npm/chess.js@1.0.0/chess.min.js
-// @resource     STOCKFISH_JS https://cdn.jsdelivr.net/npm/stockfish@18.0.7/bin/stockfish-18-lite-single.js
-// @resource     STOCKFISH_WASM https://cdn.jsdelivr.net/npm/stockfish@18.0.7/bin/stockfish-18-lite-single.wasm
-// @updateURL    https://raw.githubusercontent.com/aciokie/chess-ai-bot/main/chess-ai-bot.user.js
-// @downloadURL  https://raw.githubusercontent.com/aciokie/chess-ai-bot/main/chess-ai-bot.user.js
+// @require      https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.1/dist/chess.min.js
+// @resource     STOCKFISH_JS https://github.com/nmrugg/stockfish.js/releases/download/v18.0.0/stockfish-18-lite-single.js
+// @resource     STOCKFISH_WASM https://github.com/nmrugg/stockfish.js/releases/download/v18.0.0/stockfish-18-lite-single.wasm
+// @updateURL    https://raw.githubusercontent.com/aciokie/chess-ai-bot-lc/main/chess-ai-bot.user.js
+// @downloadURL  https://raw.githubusercontent.com/aciokie/chess-ai-bot-lc/main/chess-ai-bot.user.js
 // ==/UserScript==
 
 (function() {
