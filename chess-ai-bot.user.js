@@ -370,6 +370,9 @@
         analyzing: false,
         currentModel: null,
         cache: new Map(),
+        status: 'disconnected', // disconnected, connecting, ready, analyzing, error
+        lastOutput: '',
+        outputListeners: [],
 
         async load(modelId = SETTINGS.engineModel) {
             if (this.currentModel === modelId && this.worker) return true;
@@ -378,6 +381,7 @@
             if (!model) throw new Error(`Unknown model: ${modelId}`);
 
             this.currentModel = modelId;
+            this.setStatus('connecting');
 
             // Check IndexedDB cache first
             const cached = await this.getCachedModule(modelId);
@@ -389,11 +393,13 @@
 
             // Download and compile
             try {
+                this.setStatus('connecting', 'Downloading engine...');
                 const [jsText, wasmBytes] = await Promise.all([
                     this.fetchText(model.jsUrl),
                     this.fetchArrayBuffer(model.wasmUrl)
                 ]);
 
+                this.setStatus('connecting', 'Compiling WebAssembly...');
                 const module = await WebAssembly.compile(wasmBytes);
                 await this.cacheModule(modelId, module, jsText);
 
@@ -401,6 +407,7 @@
                 await this.init();
                 return true;
             } catch (e) {
+                this.setStatus('error', e.message);
                 ErrorReporter.capture(e, { action: 'engine_load', model: modelId });
                 throw e;
             }
@@ -414,6 +421,21 @@
             return worker;
         },
 
+        setStatus(status, message = '') {
+            this.status = status;
+            this.lastOutput = message;
+            this.outputListeners.forEach(cb => cb(status, message));
+        },
+
+        onOutput(cb) {
+            this.outputListeners.push(cb);
+        },
+
+        offOutput(cb) {
+            const idx = this.outputListeners.indexOf(cb);
+            if (idx >= 0) this.outputListeners.splice(idx, 1);
+        },
+
         async init() {
             return new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => reject(new Error('Engine init timeout')), 30000);
@@ -424,8 +446,15 @@
                         this.configure();
                         clearTimeout(timeout);
                         this.ready = true;
+                        this.setStatus('ready');
                         resolve(true);
                     }
+                };
+
+                this.worker.onerror = (e) => {
+                    clearTimeout(timeout);
+                    this.setStatus('error', 'Worker error: ' + e.message);
+                    reject(new Error('Worker error: ' + e.message));
                 };
 
                 this.worker.postMessage('uci');
@@ -460,6 +489,7 @@
             if (model.supportsMinThink) {
                 this.send(`setoption name Minimum Thinking Time value ${settings.minThinkTime}`);
             }
+            this.setStatus('ready', 'Engine configured');
         },
 
         send(cmd) {
@@ -470,10 +500,12 @@
             if (!this.ready || this.analyzing) return null;
 
             this.analyzing = true;
+            this.setStatus('analyzing', `Analyzing at depth ${depth}...`);
             const cacheKey = `${fen}:${depth}:${multiPV}`;
 
             if (this.cache.has(cacheKey)) {
                 this.analyzing = false;
+                this.setStatus('ready', 'Using cached result');
                 return this.cache.get(cacheKey);
             }
 
@@ -491,8 +523,10 @@
                         const result = { bestMove, ponder, depth, multiPV: [] };
                         this.cache.set(cacheKey, result);
                         if (this.cache.size > 100) this.cache.clear();
+                        this.setStatus('ready', `Best move: ${bestMove}`);
                         resolve(result);
                     } else if (msg.startsWith('info')) {
+                        this.setStatus('analyzing', msg);
                         const pvMatch = msg.match(/multipv (\d+) .*?score cp (-?\d+) .*?pv ([\w\s]+)/);
                         if (pvMatch) {
                             const idx = parseInt(pvMatch[1]) - 1;
@@ -521,6 +555,7 @@
         stop() {
             this.send('stop');
             this.analyzing = false;
+            this.setStatus('ready', 'Analysis stopped');
         },
 
         terminate() {
@@ -528,6 +563,7 @@
                 this.worker.terminate();
                 this.worker = null;
                 this.ready = false;
+                this.setStatus('disconnected', 'Engine terminated');
             }
         },
 
@@ -980,7 +1016,7 @@
                 backdrop-filter: blur(10px);
             `;
 
-            this.shadowRoot = this.element.attachShadow({ mode: 'open' });
+this.shadowRoot = this.element.attachShadow({ mode: 'open' });
 
             const style = document.createElement('style');
             style.textContent = `
@@ -1000,6 +1036,17 @@
                 .sf-checkbox { display: flex; align-items: center; gap: 6px; }
                 .sf-slider { flex: 1; min-width: 100px; }
                 .sf-divider { height: 1px; background: #444; margin: 12px 0; }
+                .sf-status { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+                .sf-status.disconnected { background: #555; color: #aaa; }
+                .sf-status.connecting { background: #555; color: #ffa500; }
+                .sf-status.ready { background: #2e7d32; color: #4CAF50; }
+                .sf-status.analyzing { background: #2e7d32; color: #81c784; }
+                .sf-status.error { background: #c62828; color: #ef5350; }
+                .sf-engine-output { font-family: monospace; font-size: 10px; color: #aaa; background: #1a1a1a; padding: 8px; border-radius: 4px; min-height: 40px; max-height: 150px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+                .sf-engine-output .engine-line { margin: 2px 0; }
+                .sf-engine-output .engine-line.info { color: #64b5f6; }
+                .sf-engine-output .engine-line.bestmove { color: #81c784; font-weight: bold; }
+                .sf-engine-output .engine-line.error { color: #ef5350; }
             `;
             this.shadowRoot.appendChild(style);
 
@@ -1020,6 +1067,22 @@
                         <span style="font-size:10px;color:#888;">${Platform.name}</span>
                     </div>
                     <button class="sf-btn" id="sf-collapse">â–¡</button>
+                </div>
+
+                <div class="sf-section">
+                    <div class="sf-section-title">Engine Status</div>
+                    <div class="sf-row">
+                        <label class="sf-label">Status</label>
+                        <span id="sf-engine-status" class="sf-status">Disconnected</span>
+                    </div>
+                    <div class="sf-row">
+                        <label class="sf-label">Output</label>
+                        <div id="sf-engine-output" class="sf-engine-output">Waiting...</div>
+                    </div>
+                    <div class="sf-row">
+                        <button class="sf-btn" id="sf-test-engine">Test Connection</button>
+                        <button class="sf-btn" id="sf-reload-engine">Reload Engine</button>
+                    </div>
                 </div>
 
                 <div class="sf-section">
@@ -1217,6 +1280,86 @@
                 Settings.loadModel(e.target.value);
                 await Engine.load(e.target.value);
                 this.rebuild();
+            };
+
+            // Engine status listener
+            const updateEngineStatus = (status, message) => {
+                const statusEl = shadow.getElementById('sf-engine-status');
+                const outputEl = shadow.getElementById('sf-engine-output');
+                if (statusEl) {
+                    statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                    statusEl.className = 'sf-status ' + status;
+                }
+                if (outputEl && message) {
+                    const line = document.createElement('div');
+                    line.className = 'engine-line';
+                    if (message.startsWith('info ')) {
+                        line.classList.add('info');
+                    } else if (message.startsWith('bestmove')) {
+                        line.classList.add('bestmove');
+                    } else if (message.startsWith('error') || status === 'error') {
+                        line.classList.add('error');
+                    }
+                    line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                    outputEl.insertBefore(line, outputEl.firstChild);
+                    // Keep only last 50 lines
+                    while (outputEl.children.length > 50) {
+                        outputEl.removeChild(outputEl.lastChild);
+                    }
+                }
+            };
+
+            Engine.onOutput(updateEngineStatus);
+
+            // Engine model change - reload per-model settings
+            shadow.getElementById('sf-engine-model').onchange = async (e) => {
+                SETTINGS.engineModel = e.target.value;
+                Settings.set('engineModel', e.target.value);
+                Settings.loadModel(e.target.value);
+                await Engine.load(e.target.value);
+                this.rebuild();
+            };
+
+            // Test Connection button
+            shadow.getElementById('sf-test-engine').onclick = async () => {
+                const btn = shadow.getElementById('sf-test-engine');
+                btn.disabled = true;
+                btn.textContent = 'Testing...';
+                try {
+                    await Engine.load(SETTINGS.engineModel);
+                    if (Engine.ready) {
+                        const result = await Engine.analyze('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 10, 1);
+                        if (result && result.bestMove) {
+                            alert(`Engine test passed! Best move: ${result.bestMove}`);
+                        } else {
+                            alert('Engine loaded but analysis failed');
+                        }
+                    } else {
+                        alert('Engine not ready');
+                    }
+                } catch (e) {
+                    alert('Engine test failed: ' + e.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Test Connection';
+                }
+            };
+
+            // Reload Engine button
+            shadow.getElementById('sf-reload-engine').onclick = async () => {
+                const btn = shadow.getElementById('sf-reload-engine');
+                btn.disabled = true;
+                btn.textContent = 'Reloading...';
+                try {
+                    Engine.terminate();
+                    await Engine.load(SETTINGS.engineModel);
+                    alert('Engine reloaded successfully!');
+                } catch (e) {
+                    alert('Reload failed: ' + e.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = 'Reload Engine';
+                }
             };
 
             // Buttons
