@@ -1,0 +1,32 @@
+{
+  "name": "chess-ai-bot-tests",
+  "version": "1.0.0",
+  "description": "Test suite for Chess AI Bot userscript",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
+    "test:all": "npm run test && npm run test:e2e",
+    "lint": "eslint . --ext .js",
+    "format": "prettier --write .",
+    "build": "node build.js",
+    "serve": "serve dist -p 3000"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@vitest/ui": "^1.0.0",
+    "chess.js": "^1.0.0",
+    "eslint": "^8.55.0",
+    "jsdom": "^23.0.0",
+    "prettier": "^3.1.0",
+    "serve": "^14.2.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
